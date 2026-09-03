@@ -1,11 +1,17 @@
+from datetime import date
+from io import BytesIO
 from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.units import mm
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 
 from calculations import calculate_case, resilience_label, run_scenarios
-from market_data import fetch_mandi_records, fetch_state_district_map
 
 
 st.set_page_config(
@@ -30,10 +36,44 @@ GOOD = "#2E7654"
 WARN = "#B27624"
 BAD = "#A34A40"
 
+# Local lookup: no network call, so the app remains fast and reliable.
+# "Other / Not listed" keeps the tool usable for any district not present here.
+STATE_DISTRICTS = {
+    "Andhra Pradesh": ["Anantapur", "Chittoor", "East Godavari", "Guntur", "Krishna", "Kurnool", "Nellore", "Prakasam", "Visakhapatnam", "Vizianagaram", "West Godavari", "Other / Not listed"],
+    "Assam": ["Barpeta", "Cachar", "Darrang", "Dibrugarh", "Goalpara", "Jorhat", "Kamrup", "Kamrup Metropolitan", "Nagaon", "Sonitpur", "Tinsukia", "Other / Not listed"],
+    "Bihar": ["Bhojpur", "Buxar", "Darbhanga", "Gaya", "Muzaffarpur", "Nalanda", "Patna", "Purnia", "Rohtas", "Samastipur", "Saran", "Vaishali", "Other / Not listed"],
+    "Chhattisgarh": ["Bilaspur", "Dhamtari", "Durg", "Janjgir-Champa", "Korba", "Mahasamund", "Raigarh", "Raipur", "Rajnandgaon", "Other / Not listed"],
+    "Gujarat": ["Ahmedabad", "Amreli", "Anand", "Banaskantha", "Bharuch", "Junagadh", "Kheda", "Mehsana", "Rajkot", "Surat", "Vadodara", "Other / Not listed"],
+    "Haryana": ["Ambala", "Bhiwani", "Fatehabad", "Hisar", "Jind", "Kaithal", "Karnal", "Kurukshetra", "Panipat", "Rohtak", "Sirsa", "Sonipat", "Other / Not listed"],
+    "Himachal Pradesh": ["Bilaspur", "Chamba", "Hamirpur", "Kangra", "Kullu", "Mandi", "Shimla", "Sirmaur", "Solan", "Una", "Other / Not listed"],
+    "Jharkhand": ["Bokaro", "Chatra", "Deoghar", "Dhanbad", "Dumka", "East Singhbhum", "Garhwa", "Giridih", "Godda", "Gumla", "Hazaribagh", "Jamtara", "Khunti", "Koderma", "Latehar", "Lohardaga", "Pakur", "Palamu", "Ramgarh", "Ranchi", "Sahibganj", "Seraikela-Kharsawan", "Simdega", "West Singhbhum", "Other / Not listed"],
+    "Karnataka": ["Bagalkot", "Ballari", "Belagavi", "Bengaluru Rural", "Bidar", "Chikkaballapur", "Davanagere", "Dharwad", "Hassan", "Haveri", "Kalaburagi", "Kolar", "Mandya", "Mysuru", "Raichur", "Shivamogga", "Tumakuru", "Vijayapura", "Other / Not listed"],
+    "Kerala": ["Alappuzha", "Ernakulam", "Idukki", "Kannur", "Kasaragod", "Kollam", "Kottayam", "Kozhikode", "Malappuram", "Palakkad", "Pathanamthitta", "Thiruvananthapuram", "Thrissur", "Wayanad", "Other / Not listed"],
+    "Madhya Pradesh": ["Bhopal", "Chhindwara", "Dewas", "Dhar", "Gwalior", "Hoshangabad", "Indore", "Jabalpur", "Mandsaur", "Morena", "Raisen", "Ratlam", "Rewa", "Sagar", "Sehore", "Shajapur", "Ujjain", "Vidisha", "Other / Not listed"],
+    "Maharashtra": ["Ahmednagar", "Akola", "Amravati", "Aurangabad", "Jalgaon", "Kolhapur", "Latur", "Nagpur", "Nanded", "Nashik", "Pune", "Sangli", "Satara", "Solapur", "Yavatmal", "Other / Not listed"],
+    "Odisha": ["Balasore", "Bargarh", "Bhadrak", "Bolangir", "Cuttack", "Dhenkanal", "Ganjam", "Jajpur", "Kalahandi", "Keonjhar", "Khurda", "Koraput", "Mayurbhanj", "Puri", "Sambalpur", "Other / Not listed"],
+    "Punjab": ["Amritsar", "Bathinda", "Faridkot", "Fatehgarh Sahib", "Fazilka", "Ferozepur", "Gurdaspur", "Hoshiarpur", "Jalandhar", "Kapurthala", "Ludhiana", "Mansa", "Moga", "Patiala", "Sangrur", "Sri Muktsar Sahib", "Other / Not listed"],
+    "Rajasthan": ["Ajmer", "Alwar", "Barmer", "Bharatpur", "Bhilwara", "Bikaner", "Chittorgarh", "Hanumangarh", "Jaipur", "Jodhpur", "Kota", "Nagaur", "Sikar", "Sri Ganganagar", "Tonk", "Udaipur", "Other / Not listed"],
+    "Tamil Nadu": ["Coimbatore", "Cuddalore", "Dharmapuri", "Dindigul", "Erode", "Kancheepuram", "Madurai", "Namakkal", "Salem", "Thanjavur", "Tiruchirappalli", "Tirunelveli", "Tiruppur", "Vellore", "Villupuram", "Other / Not listed"],
+    "Telangana": ["Adilabad", "Jagtial", "Karimnagar", "Khammam", "Mahabubnagar", "Medak", "Nalgonda", "Nizamabad", "Sangareddy", "Siddipet", "Warangal", "Other / Not listed"],
+    "Uttar Pradesh": ["Agra", "Aligarh", "Ayodhya", "Azamgarh", "Ballia", "Bareilly", "Basti", "Bulandshahr", "Deoria", "Etawah", "Ghazipur", "Gorakhpur", "Hardoi", "Jaunpur", "Kanpur Nagar", "Lakhimpur Kheri", "Lucknow", "Mathura", "Meerut", "Moradabad", "Prayagraj", "Raebareli", "Saharanpur", "Sitapur", "Sultanpur", "Unnao", "Varanasi", "Other / Not listed"],
+    "Uttarakhand": ["Almora", "Dehradun", "Haridwar", "Nainital", "Pauri Garhwal", "Pithoragarh", "Udham Singh Nagar", "Other / Not listed"],
+    "West Bengal": ["Alipurduar", "Bankura", "Birbhum", "Cooch Behar", "Dakshin Dinajpur", "Darjeeling", "Hooghly", "Howrah", "Jalpaiguri", "Jhargram", "Kalimpong", "Kolkata", "Malda", "Murshidabad", "Nadia", "North 24 Parganas", "Paschim Bardhaman", "Paschim Medinipur", "Purba Bardhaman", "Purba Medinipur", "Purulia", "South 24 Parganas", "Uttar Dinajpur", "Other / Not listed"],
+}
 
-@st.cache_data(ttl=86400, show_spinner=False)
-def location_map_cached():
-    return fetch_state_district_map()
+ALL_STATES = [
+    "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", "Goa",
+    "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka", "Kerala",
+    "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", "Nagaland",
+    "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", "Telangana",
+    "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
+    "Andaman and Nicobar Islands", "Chandigarh",
+    "Dadra and Nagar Haveli and Daman and Diu", "Delhi", "Jammu and Kashmir",
+    "Ladakh", "Lakshadweep", "Puducherry",
+]
+
+for state_name in ALL_STATES:
+    STATE_DISTRICTS.setdefault(state_name, ["Other / Not listed"])
 
 
 def money(x):
@@ -77,31 +117,147 @@ def load_crop_defaults():
         ("other", "other_rs_acre"),
     ]:
         st.session_state[key] = float(row[col])
-    st.session_state.pop("market_result", None)
 
 
-def on_state_change():
-    st.session_state.pop("market_result", None)
+def build_pdf(case):
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(
+        buffer,
+        pagesize=A4,
+        rightMargin=16 * mm,
+        leftMargin=16 * mm,
+        topMargin=15 * mm,
+        bottomMargin=15 * mm,
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        "Title2", parent=styles["Title"], fontName="Helvetica-Bold",
+        fontSize=20, textColor=colors.HexColor(GREEN), spaceAfter=8
+    )
+    sub_style = ParagraphStyle(
+        "Sub", parent=styles["Normal"], fontSize=9,
+        textColor=colors.HexColor("#5B6B65"), spaceAfter=10
+    )
+    h_style = ParagraphStyle(
+        "H", parent=styles["Heading2"], fontSize=11,
+        textColor=colors.HexColor(GREEN), spaceBefore=8, spaceAfter=5
+    )
+    story = [
+        Paragraph("FarmCredit — Loan Assessment Summary", title_style),
+        Paragraph(
+            "Academic accounting-based decision-support report. "
+            "This is not a credit sanction or underwriting decision.",
+            sub_style,
+        ),
+        Paragraph("Applicant & Farm", h_style),
+    ]
+    farm_data = [
+        ["Applicant", case["Applicant"]],
+        ["Location", f'{case["District"]}, {case["State"]}'],
+        ["Crop", case["Crop"]],
+        ["Area", f'{case["Area"]:.1f} acres'],
+        ["Loan requested", money(case["Loan"])],
+        ["Expected selling price", f'₹{case["Selling Price"]:,.0f}/qtl'],
+    ]
+    t1 = Table(farm_data, colWidths=[46*mm, 118*mm])
+    t1.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (0,-1), colors.HexColor("#EEF4F0")),
+        ("TEXTCOLOR", (0,0), (-1,-1), colors.HexColor("#20332C")),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (1,0), (1,-1), "Helvetica"),
+        ("FONTSIZE", (0,0), (-1,-1), 9),
+        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#D8E0DB")),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+        ("TOPPADDING", (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+    ]))
+    story += [t1, Spacer(1, 7), Paragraph("Financial Assessment", h_style)]
+
+    fin = [
+        ["Expected revenue", money(case["Revenue"]), "Accounting profit", money(case["Profit"])],
+        ["Accounting cost", money(case["Accounting Cost"]), "Profit margin", f'{case["Margin"]:.1f}%'],
+        ["Break-even price", f'₹{case["Break-even Price"]:,.0f}/qtl', "Harvest coverage", f'{case["Coverage"]:.2f}×'],
+        ["Price cushion", f'{case["Price Cushion"]:.1f}%', "Yield cushion", f'{case["Yield Cushion"]:.1f}%'],
+        ["Indicative supportable loan", money(case["Supportable Loan"]), "Resilience", case["Resilience"]],
+    ]
+    t2 = Table(fin, colWidths=[42*mm, 40*mm, 42*mm, 40*mm])
+    t2.setStyle(TableStyle([
+        ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#F9F6ED")),
+        ("TEXTCOLOR", (0,0), (-1,-1), colors.HexColor("#20332C")),
+        ("FONTNAME", (0,0), (-1,-1), "Helvetica"),
+        ("FONTNAME", (0,0), (0,-1), "Helvetica-Bold"),
+        ("FONTNAME", (2,0), (2,-1), "Helvetica-Bold"),
+        ("FONTSIZE", (0,0), (-1,-1), 8.5),
+        ("GRID", (0,0), (-1,-1), 0.35, colors.HexColor("#DDD7C9")),
+        ("TOPPADDING", (0,0), (-1,-1), 5),
+        ("BOTTOMPADDING", (0,0), (-1,-1), 5),
+    ]))
+    story += [
+        t2,
+        Spacer(1, 8),
+        Paragraph("Interpretation", h_style),
+        Paragraph(case["Status Note"], styles["BodyText"]),
+        Spacer(1, 8),
+        Paragraph(
+            "Method note: expected selling price is entered manually or based on the MSP reference. "
+            "FarmCredit deliberately avoids a live market API in the submission version to improve reliability. "
+            "Actual lending decisions require independent verification, KYC, policy, bureau, collateral/security "
+            "and any other lender-specific checks.",
+            sub_style,
+        ),
+    ]
+    doc.build(story)
+    return buffer.getvalue()
 
 
-def on_district_change():
-    st.session_state.pop("market_result", None)
+def seed_demo_portfolio():
+    if "portfolio" in st.session_state:
+        return
+    demos = [
+        {
+            "Applicant": "Demo Farmer 01", "State": "Jharkhand", "District": "Ranchi",
+            "Crop": "Paddy (Common)", "Area": 3.0, "Loan": 45000.0,
+            "Selling Price": 2441.0, "Revenue": 83482.2, "Accounting Cost": 58575.0,
+            "Profit": 24907.2, "Margin": 29.8, "Coverage": 1.79,
+            "Break-even Price": 1712.7, "Price Cushion": 29.8, "Yield Cushion": 29.8,
+            "Supportable Loan": 54000.0, "Resilience": "Strong",
+            "Status Note": "Base case remains profitable with comfortable modeled coverage."
+        },
+        {
+            "Applicant": "Demo Farmer 02", "State": "West Bengal", "District": "Jalpaiguri",
+            "Crop": "Wheat", "Area": 2.0, "Loan": 55000.0,
+            "Selling Price": 2585.0, "Revenue": 69500.0, "Accounting Cost": 61200.0,
+            "Profit": 8300.0, "Margin": 11.9, "Coverage": 1.22,
+            "Break-even Price": 2277.0, "Price Cushion": 11.9, "Yield Cushion": 12.2,
+            "Supportable Loan": 52000.0, "Resilience": "Moderate",
+            "Status Note": "Base case is positive, but the downside cushion is comparatively thin."
+        },
+        {
+            "Applicant": "Demo Farmer 03", "State": "Bihar", "District": "Patna",
+            "Crop": "Maize", "Area": 2.5, "Loan": 70000.0,
+            "Selling Price": 2250.0, "Revenue": 53400.0, "Accounting Cost": 59200.0,
+            "Profit": -5800.0, "Margin": -10.9, "Coverage": 0.74,
+            "Break-even Price": 2494.0, "Price Cushion": -10.8, "Yield Cushion": -10.5,
+            "Supportable Loan": 41000.0, "Resilience": "Stressed",
+            "Status Note": "The modeled base case is loss-making and coverage is weak."
+        },
+    ]
+    st.session_state["portfolio"] = demos
 
+
+seed_demo_portfolio()
 
 if "crop" not in st.session_state:
     st.session_state["crop"] = "Paddy (Common)"
     load_crop_defaults()
 
-state_districts, location_source = location_map_cached()
-states = sorted(state_districts.keys())
-
 if "state" not in st.session_state:
-    st.session_state["state"] = "Jharkhand" if "Jharkhand" in states else states[0]
+    st.session_state["state"] = "Jharkhand"
 
-district_options = state_districts.get(st.session_state["state"], ["Other / not listed"])
-if "district" not in st.session_state or st.session_state["district"] not in district_options:
-    preferred = "Ranchi" if "Ranchi" in district_options else district_options[0]
-    st.session_state["district"] = preferred
+# Keep district valid when state changes.
+current_districts = STATE_DISTRICTS.get(st.session_state["state"], ["Other / Not listed"])
+if "district_select" not in st.session_state or st.session_state["district_select"] not in current_districts:
+    st.session_state["district_select"] = "Ranchi" if "Ranchi" in current_districts else current_districts[0]
 
 
 st.markdown("""
@@ -149,38 +305,44 @@ header[data-testid="stHeader"]{background:transparent;}
 }
 .eyebrow{font-size:.76rem;letter-spacing:.14em;text-transform:uppercase;font-weight:800;opacity:.70;margin-bottom:.7rem}
 .hero h1{color:white!important;font-size:2.45rem;line-height:1.06;margin:0 0 .75rem;max-width:850px}
-.hero p{font-size:1rem;line-height:1.65;color:rgba(255,255,255,.82);max-width:830px;margin:0}
+.hero p{font-size:1rem;line-height:1.65;color:rgba(255,255,255,.82);max-width:860px;margin:0}
 .section-kicker{
   font-family:"Manrope",sans-serif;font-size:.76rem;font-weight:800;text-transform:uppercase;
   letter-spacing:.12em;color:var(--green);margin:.3rem 0 .55rem;
 }
 div[data-testid="stVerticalBlockBorderWrapper"]{
-  background:rgba(255,254,250,.90)!important;border:1px solid var(--line)!important;
+  background:rgba(255,254,250,.92)!important;border:1px solid var(--line)!important;
   border-radius:22px!important;box-shadow:0 12px 34px rgba(25,52,43,.05)!important;
 }
 div[data-testid="stWidgetLabel"] p{
   font-weight:700!important;color:#334640!important;font-size:.82rem!important;
 }
 
-/* Force all dropdowns to match the light dashboard instead of browser dark theme */
-div[data-baseweb="select"] > div{
+/* Force all selectors to remain light, including closed crop/state/district controls. */
+div[data-testid="stSelectbox"] div[role="combobox"],
+div[data-baseweb="select"] > div {
   background:#FFFFFF!important;
-  border:1px solid #DDD7C9!important;
   color:#14211D!important;
+  border:1px solid #D9D2C4!important;
   border-radius:12px!important;
+  box-shadow:none!important;
 }
+div[data-testid="stSelectbox"] div[role="combobox"] *,
 div[data-baseweb="select"] span,
 div[data-baseweb="select"] input{
   color:#14211D!important;
+  -webkit-text-fill-color:#14211D!important;
+  fill:#36564B!important;
 }
-div[data-baseweb="popover"] ul{
+div[role="listbox"], div[data-baseweb="popover"] ul{
   background:#FFFFFF!important;
+  border:1px solid #D9D2C4!important;
 }
-div[data-baseweb="popover"] li{
+div[role="option"], div[data-baseweb="popover"] li{
   background:#FFFFFF!important;color:#14211D!important;
 }
-div[data-baseweb="popover"] li:hover{
-  background:#EEF4F0!important;
+div[role="option"]:hover, div[data-baseweb="popover"] li:hover{
+  background:#EEF4F0!important;color:#14211D!important;
 }
 
 div[data-testid="stNumberInput"]>div>div,
@@ -214,13 +376,6 @@ div[data-testid="stNumberInput"] button{background:#F2EFE6!important;color:#183D
   border-left:3px solid var(--gold);background:#FFFDF6;padding:.82rem 1rem;
   border-radius:0 12px 12px 0;color:#53625D;font-size:.80rem;line-height:1.55;
 }
-.market-card{
-  background:linear-gradient(145deg,#F5F9F6,#FFFEFA);border:1px solid #D7E5DC;
-  border-radius:18px;padding:1rem 1.1rem;
-}
-.market-title{font-weight:800;font-family:"Manrope",sans-serif;color:#214F3D}
-.market-big{font-family:"Manrope",sans-serif;font-weight:800;font-size:1.8rem;color:#173F35;margin:.2rem 0}
-.market-meta{font-size:.78rem;color:#65736D;line-height:1.5}
 .source-chip{
   display:inline-block;border:1px solid var(--line);background:#FFFDF8;border-radius:999px;
   padding:.3rem .58rem;font-size:.72rem;color:#53675F;margin:.1rem .25rem .1rem 0;
@@ -232,53 +387,13 @@ div[data-testid="stNumberInput"] button{background:#F2EFE6!important;color:#183D
 .light-table th{background:#F0EEE6;color:#30463E;text-align:left;padding:.70rem .68rem;font-weight:800}
 .light-table td{padding:.66rem .68rem;border-top:1px solid #ECE7DB;color:#293B35}
 .light-table tr:nth-child(even) td{background:#FBF9F4}
-.small-muted{font-size:.76rem;color:var(--muted);line-height:1.5}
-div[data-testid="stTabs"] button p{font-weight:800!important;}
 .stButton button, .stDownloadButton button{
   border-radius:12px!important;font-weight:800!important;
 }
-
-/* v0.3.1 — force closed dropdown controls and menus into light mode */
-div[data-testid="stSelectbox"] div[role="combobox"]{
-  background-color:#FFFFFF !important;
-  color:#14211D !important;
-  border:1px solid #D9D2C4 !important;
-  box-shadow:none !important;
+.stButton button{
+  background:#173F35!important;color:#FFFFFF!important;border:1px solid #173F35!important;
 }
-div[data-testid="stSelectbox"] div[role="combobox"] *{
-  color:#14211D !important;
-  fill:#36564B !important;
-}
-div[data-testid="stSelectbox"] div[role="combobox"]:focus-within{
-  border-color:#6F9687 !important;
-  box-shadow:0 0 0 2px rgba(43,101,85,.12) !important;
-}
-div[role="listbox"]{
-  background:#FFFFFF !important;
-  border:1px solid #D9D2C4 !important;
-}
-div[role="option"]{
-  background:#FFFFFF !important;
-  color:#14211D !important;
-}
-div[role="option"]:hover{
-  background:#EEF4F0 !important;
-  color:#14211D !important;
-}
-div[role="option"][aria-selected="true"]{
-  background:#E4EFE9 !important;
-  color:#143E35 !important;
-}
-div[data-testid="stButton"] > button{
-  background:#173F35 !important;
-  color:#FFFFFF !important;
-  border:1px solid #173F35 !important;
-}
-div[data-testid="stButton"] > button:hover{
-  background:#24594A !important;
-  color:#FFFFFF !important;
-}
-
+.stButton button:hover{background:#24594A!important;color:#FFFFFF!important}
 </style>
 """, unsafe_allow_html=True)
 
@@ -291,43 +406,49 @@ st.markdown("""
       <div class="brand-sub">Agricultural financial intelligence</div>
     </div>
   </div>
-  <div class="version">Accounting WAI · Prototype v0.3.1</div>
+  <div class="version">Submission build · v1.0</div>
 </div>
 <div class="hero">
-  <div class="eyebrow">Market-aware crop-cycle assessment</div>
-  <h1>Turn farm economics and market context into a clearer lending conversation.</h1>
-  <p>Use location-aware inputs, official MSP references, recent mandi observations, accounting break-even and stress testing in one explainable dashboard.</p>
+  <div class="eyebrow">Accounting-led farm credit assessment</div>
+  <h1>Turn farm economics into a clearer lending conversation.</h1>
+  <p>Assess profitability, accounting break-even, financing exposure and downside resilience using fast, transparent assumptions. Market price can be entered manually from a recent mandi source or retained at the official MSP reference.</p>
 </div>
 """, unsafe_allow_html=True)
 
-assessment_tab, method_tab = st.tabs(["Assessment dashboard", "Methodology & sources"])
+assessment_tab, banker_tab, method_tab = st.tabs([
+    "Farm assessment", "Banker view", "Methodology & sources"
+])
 
 with assessment_tab:
-    st.markdown('<div class="section-kicker">01 · Farm location, crop & market</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-kicker">01 · Applicant, location & crop</div>', unsafe_allow_html=True)
 
-    top_left, top_right = st.columns([1.05, 1.15], gap="large")
+    col_a, col_b = st.columns([1.0, 1.15], gap="large")
 
-    with top_left:
+    with col_a:
         with st.container(border=True):
-            st.markdown("### Location & crop")
+            st.markdown("### Applicant & location")
+            applicant = st.text_input("Applicant name / ID", value="Farmer A-001")
 
             state = st.selectbox(
                 "State / UT",
-                states,
+                ALL_STATES,
                 key="state",
-                on_change=on_state_change,
             )
 
-            district_options = state_districts.get(state, ["Other / not listed"])
-            if st.session_state.get("district") not in district_options:
-                st.session_state["district"] = district_options[0]
+            districts = STATE_DISTRICTS.get(state, ["Other / Not listed"])
+            if st.session_state.get("district_select") not in districts:
+                st.session_state["district_select"] = districts[0]
 
-            district = st.selectbox(
-                "District / market area",
-                district_options,
-                key="district",
-                on_change=on_district_change,
+            district_select = st.selectbox(
+                "District",
+                districts,
+                key="district_select",
             )
+            if district_select == "Other / Not listed":
+                district = st.text_input("Enter district manually", value="")
+                district = district.strip() or "Not specified"
+            else:
+                district = district_select
 
             crop = st.selectbox(
                 "Crop",
@@ -339,80 +460,45 @@ with assessment_tab:
             row = benchmarks.loc[crop]
             st.markdown(
                 f'<span class="source-chip">{row["season"]} crop</span>'
-                f'<span class="source-chip">2026–27 MSP: ₹{row["msp_2026_27_rs_qtl"]:,.0f}/qtl</span>'
-                f'<span class="source-chip">{location_source}</span>',
+                f'<span class="source-chip">2026–27 MSP: ₹{row["msp_2026_27_rs_qtl"]:,.0f}/qtl</span>',
                 unsafe_allow_html=True,
             )
 
-            st.caption("District choices are location lookups. Actual mandi coverage depends on the market-price dataset.")
-
-    with top_right:
+    with col_b:
         with st.container(border=True):
-            st.markdown("### Recent mandi market data")
-            st.caption("Connect to the Government of India's AGMARKNET/data.gov.in feed using your own free API key.")
-
-            api_key = st.text_input(
-                "data.gov.in API key",
-                type="password",
-                placeholder="Paste API key here",
-                help="The key is used for this session only and is not written to the repository by this app.",
+            st.markdown("### Market price assumption")
+            price_basis = st.selectbox(
+                "Price basis",
+                ["MSP reference", "Recent mandi price entered manually", "Bank / farmer estimate"],
             )
 
-            fetch_clicked = st.button("Fetch recent mandi price", use_container_width=True)
+            price = st.number_input(
+                "Expected / observed selling price (₹/quintal)",
+                min_value=1.0,
+                step=10.0,
+                key="price",
+            )
 
-            if fetch_clicked:
-                with st.spinner("Checking recent mandi observations..."):
-                    st.session_state["market_result"] = fetch_mandi_records(
-                        api_key=api_key,
-                        state=state,
-                        district=district,
-                        crop=crop,
-                    )
-
-            market_result = st.session_state.get("market_result")
-
-            if market_result and market_result.get("ok"):
-                latest = market_result["latest"]
-                modal = float(latest.get("modal_price", 0) or 0)
-                minp = float(latest.get("min_price", 0) or 0)
-                maxp = float(latest.get("max_price", 0) or 0)
-                market = latest.get("market", "—")
-                arrival = latest.get("arrival_date", "—")
-                commodity = latest.get("commodity", crop)
-
-                st.markdown(
-                    f"""
-                    <div class="market-card">
-                      <div class="market-title">Latest matched observation</div>
-                      <div class="market-big">₹{modal:,.0f}/qtl</div>
-                      <div class="market-meta">
-                        {commodity} · {market}<br>
-                        {district}, {state} · {arrival}<br>
-                        Range: ₹{minp:,.0f}–₹{maxp:,.0f}/qtl
-                      </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                if st.button("Use this modal price in the financial model", use_container_width=True):
-                    st.session_state["price"] = modal
-                    st.rerun()
-
-            elif market_result:
-                kind = market_result.get("kind", "")
-                message = market_result.get("message", "No market data loaded.")
-                if kind == "timeout":
-                    st.warning(message)
-                elif kind in {"no_records", "no_crop_match"}:
-                    st.info(message)
-                else:
-                    st.error(message)
+            if price_basis == "Recent mandi price entered manually":
+                market_name = st.text_input("Market / mandi name", value="")
+                market_date = st.date_input("Price observation date", value=date.today())
+                st.caption("Enter the recent modal/expected mandi price manually from your preferred market source.")
             else:
-                st.markdown(
-                    '<div class="note">Until an API key is connected, the financial model uses the editable MSP benchmark as the starting selling-price assumption.</div>',
-                    unsafe_allow_html=True,
-                )
+                market_name = ""
+                market_date = None
+
+            msp = float(row["msp_2026_27_rs_qtl"])
+            delta_msp = (price - msp) / msp * 100 if msp else 0
+            st.markdown(
+                f"""
+                <div class="note">
+                  Current price assumption: <b>₹{price:,.0f}/qtl</b><br>
+                  MSP reference: <b>₹{msp:,.0f}/qtl</b><br>
+                  Difference vs MSP: <b>{delta_msp:+.1f}%</b>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.markdown('<div class="section-kicker" style="margin-top:1rem">02 · Farm assumptions & financing</div>', unsafe_allow_html=True)
 
@@ -421,7 +507,6 @@ with assessment_tab:
     with left:
         with st.container(border=True):
             st.markdown("### Production & financing")
-
             x1, x2 = st.columns(2)
             with x1:
                 area = st.number_input("Land area (acres)", min_value=0.1, value=3.0, step=0.5)
@@ -430,11 +515,9 @@ with assessment_tab:
 
             x3, x4 = st.columns(2)
             with x3:
-                price = st.number_input("Expected selling price (₹/quintal)", min_value=1.0, step=10.0, key="price")
-            with x4:
                 loss = st.number_input("Post-harvest loss (%)", min_value=0.0, max_value=50.0, step=0.5, key="loss")
-
-            st.caption("Expected selling price remains editable even when market data is available.")
+            with x4:
+                months = st.number_input("Crop cycle (months)", min_value=1, max_value=24, step=1, key="months")
 
             f1, f2 = st.columns(2)
             with f1:
@@ -442,12 +525,10 @@ with assessment_tab:
             with f2:
                 rate = st.number_input("Annual interest rate (%)", min_value=0.0, value=7.0, step=0.25)
 
-            months = st.number_input("Crop cycle (months)", min_value=1, max_value=24, step=1, key="months")
-
     with right:
         with st.container(border=True):
             st.markdown("### Cultivation cost model")
-            st.caption("Starter figures are illustrative and editable; use farmer-specific or locally validated costs wherever available.")
+            st.caption("Starter values are editable illustrative defaults. Replace them with farmer-specific or locally validated figures.")
 
             a, b, c = st.columns(3)
             with a:
@@ -520,25 +601,7 @@ with assessment_tab:
     with m8:
         st.markdown(metric_card("Indicative supportable loan", money(r["indicative_max_supportable_loan"]), "Capped by modeled cash cost at 1.25× target coverage"), unsafe_allow_html=True)
 
-    if market_result and market_result.get("ok"):
-        latest_modal = float(market_result["latest"].get("modal_price", 0) or 0)
-        msp = float(row["msp_2026_27_rs_qtl"])
-        delta_msp = (latest_modal - msp) / msp * 100 if msp else 0
-        delta_be = (latest_modal - r["break_even_price"]) / latest_modal * 100 if latest_modal else 0
-        st.markdown(
-            f'<div class="note" style="margin-top:.65rem"><b>Market context:</b> Latest matched modal price is '
-            f'<b>{delta_msp:+.1f}% vs MSP</b> and provides a modeled <b>{delta_be:.1f}% cushion vs accounting break-even</b>.</div>',
-            unsafe_allow_html=True,
-        )
-
-    if r["excess_financing"] > 0:
-        st.warning(
-            f"Requested loan exceeds modeled cash cultivation cost by {money(r['excess_financing'])}. "
-            "Confirm the purpose of the additional crop-cycle borrowing."
-        )
-
-    st.markdown('<div class="section-kicker" style="margin-top:1.4rem">04 · Resilience & market structure</div>', unsafe_allow_html=True)
-
+    st.markdown('<div class="section-kicker" style="margin-top:1.4rem">04 · Resilience & cost structure</div>', unsafe_allow_html=True)
     c_left, c_mid, c_right = st.columns([0.9, 1.05, 1.05], gap="large")
 
     with c_left:
@@ -565,9 +628,12 @@ with assessment_tab:
             marker=dict(colors=["#173F35","#2C6555","#4C806F","#78A08F","#A7B9A8","#C89B4A","#D8B96E","#B7A88F","#8D8A7D"]),
         ))
         fig_cost.add_annotation(text=f"<b>₹{sum(values):,.0f}</b><br><span style='font-size:11px'>per acre</span>", showarrow=False, font=dict(size=17, color=INK))
-        fig_cost.update_layout(title=dict(text="Cost composition", x=.02, xanchor="left", font=dict(size=17,color=INK)),
-                               margin=dict(l=10,r=10,t=55,b=10),height=320,paper_bgcolor="rgba(0,0,0,0)",
-                               plot_bgcolor="rgba(0,0,0,0)",legend=dict(font=dict(size=10,color=MUTED),orientation="h",y=-.05))
+        fig_cost.update_layout(
+            title=dict(text="Cost composition", x=.02, xanchor="left", font=dict(size=17,color=INK)),
+            margin=dict(l=10,r=10,t=55,b=10), height=320,
+            paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+            legend=dict(font=dict(size=10,color=MUTED),orientation="h",y=-.05)
+        )
         st.plotly_chart(fig_cost, use_container_width=True, config={"displayModeBar":False})
 
     with c_right:
@@ -580,36 +646,17 @@ with assessment_tab:
             textposition="outside",
             hovertemplate="%{y}: ₹%{x:,.0f}/qtl<extra></extra>",
         ))
-        fig_be.update_layout(title=dict(text="Price vs accounting break-even",x=.02,xanchor="left",font=dict(size=17,color=INK)),
-                             xaxis=dict(title="₹ per quintal",gridcolor="#ECE7DA",zeroline=False),
-                             yaxis=dict(title=""),margin=dict(l=10,r=35,t=55,b=35),height=320,
-                             paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(color=MUTED))
+        fig_be.update_layout(
+            title=dict(text="Price vs accounting break-even",x=.02,xanchor="left",font=dict(size=17,color=INK)),
+            xaxis=dict(title="₹ per quintal",gridcolor="#ECE7DA",zeroline=False),
+            yaxis=dict(title=""),margin=dict(l=10,r=35,t=55,b=35),height=320,
+            paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(color=MUTED)
+        )
         st.plotly_chart(fig_be,use_container_width=True,config={"displayModeBar":False})
 
-    if market_result and market_result.get("ok") and market_result.get("history"):
-        history = pd.DataFrame(market_result["history"])
-        if "_date" in history.columns and "modal_price" in history.columns:
-            history["_date"] = pd.to_datetime(history["_date"], errors="coerce")
-            history["modal_price"] = pd.to_numeric(history["modal_price"], errors="coerce")
-            history = history.dropna(subset=["_date","modal_price"])
-            if len(history) >= 2:
-                fig_market = go.Figure()
-                fig_market.add_trace(go.Scatter(
-                    x=history["_date"],y=history["modal_price"],mode="lines+markers",
-                    line=dict(color=GREEN_2,width=3),marker=dict(size=6),
-                    hovertemplate="%{x|%d %b %Y}<br>Modal ₹%{y:,.0f}/qtl<extra></extra>"
-                ))
-                fig_market.add_hline(y=float(row["msp_2026_27_rs_qtl"]),line_dash="dash",line_color=GOLD,
-                                     annotation_text="MSP reference")
-                fig_market.update_layout(title=dict(text="Recent matched mandi observations",x=.01,xanchor="left",font=dict(size=18,color=INK)),
-                                         yaxis=dict(title="₹ per quintal",gridcolor="#ECE7DA"),xaxis=dict(title=""),
-                                         height=340,margin=dict(l=10,r=10,t=55,b=25),
-                                         paper_bgcolor="rgba(0,0,0,0)",plot_bgcolor="rgba(0,0,0,0)",font=dict(color=MUTED))
-                st.plotly_chart(fig_market,use_container_width=True,config={"displayModeBar":False})
-
     st.markdown('<div class="section-kicker" style="margin-top:1.2rem">05 · Scenario stress test</div>', unsafe_allow_html=True)
-
     scenario_df = pd.DataFrame(scenario_rows)
+
     fig_stress = go.Figure(go.Bar(
         x=scenario_df["Scenario"],y=scenario_df["Accounting profit"],
         marker_color=[GREEN_2 if v>=0 else BAD for v in scenario_df["Accounting profit"]],
@@ -617,10 +664,12 @@ with assessment_tab:
         hovertemplate="%{x}<br>Accounting profit: ₹%{y:,.0f}<extra></extra>",
     ))
     fig_stress.add_hline(y=0,line_width=1,line_color="#8D8A7D")
-    fig_stress.update_layout(title=dict(text="Profit resilience across price and yield shocks",x=.01,xanchor="left",font=dict(size=18,color=INK)),
-                             yaxis=dict(title="Accounting profit (₹)",gridcolor="#ECE7DA"),xaxis=dict(title=""),
-                             margin=dict(l=10,r=10,t=55,b=20),height=350,paper_bgcolor="rgba(0,0,0,0)",
-                             plot_bgcolor="rgba(0,0,0,0)",font=dict(color=MUTED))
+    fig_stress.update_layout(
+        title=dict(text="Profit resilience across price and yield shocks",x=.01,xanchor="left",font=dict(size=18,color=INK)),
+        yaxis=dict(title="Accounting profit (₹)",gridcolor="#ECE7DA"),xaxis=dict(title=""),
+        margin=dict(l=10,r=10,t=55,b=20),height=350,paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",font=dict(color=MUTED)
+    )
     st.plotly_chart(fig_stress,use_container_width=True,config={"displayModeBar":False})
 
     table_rows = []
@@ -641,25 +690,133 @@ with assessment_tab:
         unsafe_allow_html=True,
     )
 
-    export_df = scenario_df.copy()
-    st.download_button("Download scenario analysis (CSV)",
-                       data=export_df.to_csv(index=False).encode("utf-8"),
-                       file_name="farmcredit_scenario_analysis.csv",
-                       mime="text/csv")
+    current_case = {
+        "Applicant": applicant,
+        "State": state,
+        "District": district,
+        "Crop": crop,
+        "Area": area,
+        "Loan": loan,
+        "Selling Price": price,
+        "Revenue": r["revenue"],
+        "Accounting Cost": r["total_accounting_cost"],
+        "Profit": r["accounting_profit"],
+        "Margin": r["margin"],
+        "Coverage": r["harvest_coverage"],
+        "Break-even Price": r["break_even_price"],
+        "Price Cushion": r["price_cushion"],
+        "Yield Cushion": r["yield_cushion"],
+        "Supportable Loan": r["indicative_max_supportable_loan"],
+        "Resilience": status,
+        "Status Note": status_copy,
+    }
+
+    a1, a2 = st.columns(2)
+    with a1:
+        if st.button("Add current case to Banker View", use_container_width=True):
+            # Replace same applicant if it already exists.
+            st.session_state["portfolio"] = [
+                c for c in st.session_state["portfolio"]
+                if c["Applicant"] != applicant
+            ] + [current_case]
+            st.success(f"{applicant} added to Banker View.")
+    with a2:
+        st.download_button(
+            "Download loan assessment PDF",
+            data=build_pdf(current_case),
+            file_name=f"{applicant.replace(' ','_')}_farmcredit_assessment.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+        )
 
     st.markdown(
-        "<div class='note' style='margin-top:.7rem'><b>Academic-use notice.</b> "
-        "FarmCredit is an explainable accounting and scenario-analysis prototype. "
-        "It does not approve or reject credit, predict future crop prices, or replace lender underwriting, "
-        "KYC, bureau, collateral, field-verification, policy or regulatory checks.</div>",
+        "<div class='note' style='margin-top:.8rem'><b>Submission-version market approach:</b> "
+        "FarmCredit uses official MSP as a reference and allows a recent mandi price to be entered manually. "
+        "The live market API was intentionally removed from the final build because it caused slow and unreliable responses during deployment.</div>",
         unsafe_allow_html=True,
     )
+
+with banker_tab:
+    st.markdown('<div class="section-kicker">Banker portfolio view</div>', unsafe_allow_html=True)
+    portfolio = st.session_state["portfolio"]
+    pf = pd.DataFrame(portfolio)
+
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
+        st.markdown(metric_card("Applicants", f"{len(pf)}", "Cases in current session", GREEN_2), unsafe_allow_html=True)
+    with b2:
+        st.markdown(metric_card("Requested exposure", money(pf["Loan"].sum()), "Total requested loan", GOLD), unsafe_allow_html=True)
+    with b3:
+        strong_count = int((pf["Resilience"] == "Strong").sum())
+        st.markdown(metric_card("Strong cases", f"{strong_count}", "Modeled resilience", GOOD), unsafe_allow_html=True)
+    with b4:
+        stressed_count = int((pf["Resilience"] == "Stressed").sum())
+        st.markdown(metric_card("Stressed cases", f"{stressed_count}", "Require closer review", BAD), unsafe_allow_html=True)
+
+    filter_status = st.multiselect(
+        "Filter by resilience",
+        ["Strong", "Moderate", "Stressed"],
+        default=["Strong", "Moderate", "Stressed"],
+    )
+    show_pf = pf[pf["Resilience"].isin(filter_status)].copy()
+
+    rank_map = {"Strong": 1, "Moderate": 2, "Stressed": 3}
+    show_pf["Risk rank"] = show_pf["Resilience"].map(rank_map)
+    show_pf = show_pf.sort_values(["Risk rank", "Coverage"], ascending=[True, False])
+
+    table_rows = []
+    for _, rowp in show_pf.iterrows():
+        table_rows.append(
+            "<tr><td>{}</td><td>{}, {}</td><td>{}</td><td>{:.1f}</td><td>{}</td><td>{}</td><td>{:.2f}×</td><td>{}</td></tr>".format(
+                rowp["Applicant"], rowp["District"], rowp["State"], rowp["Crop"], rowp["Area"],
+                money(rowp["Loan"]), money(rowp["Profit"]), rowp["Coverage"], rowp["Resilience"]
+            )
+        )
+    st.markdown(
+        "<table class='light-table'><thead><tr>"
+        "<th>Applicant</th><th>Location</th><th>Crop</th><th>Area</th><th>Loan</th>"
+        "<th>Profit</th><th>Coverage</th><th>Resilience</th>"
+        "</tr></thead><tbody>" + "".join(table_rows) + "</tbody></table>",
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("### Applicant drill-down")
+    selected = st.selectbox("Select applicant", show_pf["Applicant"].tolist())
+    case = next(c for c in portfolio if c["Applicant"] == selected)
+
+    d1, d2, d3, d4 = st.columns(4)
+    with d1:
+        st.metric("Accounting profit", money(case["Profit"]))
+    with d2:
+        st.metric("Harvest coverage", f'{case["Coverage"]:.2f}×')
+    with d3:
+        st.metric("Break-even price", f'₹{case["Break-even Price"]:,.0f}/qtl')
+    with d4:
+        st.metric("Supportable loan", money(case["Supportable Loan"]))
+
+    st.info(case["Status Note"])
+
+    csv_export = pf.drop(columns=["Status Note"], errors="ignore").to_csv(index=False).encode("utf-8")
+    e1, e2 = st.columns(2)
+    with e1:
+        st.download_button(
+            "Download banker portfolio (CSV)",
+            data=csv_export,
+            file_name="farmcredit_banker_portfolio.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+    with e2:
+        if st.button("Reset to demo portfolio", use_container_width=True):
+            st.session_state.pop("portfolio", None)
+            seed_demo_portfolio()
+            st.rerun()
 
 with method_tab:
     st.markdown("## Methodology & sources")
     st.write(
-        "FarmCredit separates farmer-entered assumptions from external reference data. "
-        "The accounting engine remains transparent and editable; market observations supplement rather than replace the farmer's own expected selling-price assumption."
+        "FarmCredit is an accounting-based academic decision-support prototype. "
+        "It separates farmer-entered assumptions from external reference benchmarks and keeps the decision logic transparent."
     )
 
     st.markdown("### Accounting flow")
@@ -672,16 +829,25 @@ with method_tab:
         language=None,
     )
 
-    st.markdown("### External data")
-    st.markdown(
-        "- **Mandi prices:** Government of India Open Government Data / AGMARKNET resource "
-        "`9ef84268-d588-465a-a308-a864a43d0070`.\n"
-        "- **Location taxonomy:** state/district dropdowns use an LGD-derived district index; "
-        "the Government's Local Government Directory remains the authoritative administrative reference.\n"
-        "- **MSP reference values:** Government of India Press Information Bureau, Kharif and Rabi 2026–27 announcements."
+    st.markdown("### Market-price approach")
+    st.write(
+        "The final submission version does not call a live mandi API. "
+        "Instead, it uses the 2026–27 MSP reference as a starting benchmark and allows the user to enter a recent mandi or lender/farmer price manually. "
+        "This keeps the demonstration fast, transparent and reliable."
     )
 
-    st.info(
-        "A mandi modal price is an observed wholesale-market price, not a guaranteed farmer realization. "
-        "The app always keeps the expected selling price editable."
+    st.markdown("### Reference price sources")
+    st.markdown(
+        "- **Kharif 2026–27 MSP:** Government of India, Press Information Bureau.\n"
+        "- **Rabi 2026–27 MSP:** Government of India, Press Information Bureau.\n"
+        "- **Recent market price (optional):** user-entered from a preferred mandi/AGMARKNET/data.gov.in observation."
+    )
+
+    source_table = benchmarks[["season", "msp_2026_27_rs_qtl", "price_source"]].reset_index()
+    source_table.columns = ["Crop", "Season", "MSP 2026–27 (₹/qtl)", "Source label"]
+    st.dataframe(source_table, hide_index=True, use_container_width=True)
+
+    st.warning(
+        "The resilience labels and supportable-loan metric are illustrative analytical rules for this academic model. "
+        "They are not a bank's sanction criteria and do not replace lender underwriting, KYC, policy, bureau, security/collateral or field verification."
     )
