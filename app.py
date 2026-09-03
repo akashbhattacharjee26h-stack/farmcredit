@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from calculations import calculate_case, run_scenarios, resilience_label
+from market_data import fetch_live_mandi_price
 
 
 st.set_page_config(
@@ -408,6 +409,11 @@ if "last_result" not in st.session_state:
     st.session_state.last_case = None
     st.session_state.last_inputs = None
 
+if "live_market_result" not in st.session_state:
+    st.session_state.live_market_result = None
+if "live_modal_price" not in st.session_state:
+    st.session_state.live_modal_price = None
+
 
 # -------------------------------------------------------------------
 # HEADER
@@ -416,7 +422,7 @@ st.markdown(
     """
     <div class="brandbar">
       <div class="brand">🌾 FarmCredit</div>
-      <div class="badge">Submission build · v2.1</div>
+      <div class="badge">Submission build · v2.2</div>
     </div>
     <div class="hero">
       <h1>Farmer profitability & loan viability, in one view.</h1>
@@ -513,9 +519,85 @@ with farm_tab:
                     "MSP reference",
                     "Recent mandi price entered manually",
                     "Farmer / lender estimate",
+                    "Live mandi price from data.gov.in (optional)",
                 ],
                 help="Choose the source/basis of the price used for revenue calculation.",
             )
+
+            # Clearly separated optional API section.
+            if price_basis == "Live mandi price from data.gov.in (optional)":
+                st.markdown(
+                    """
+                    <div class="inputhelp">
+                      <b>LIVE MARKET DATA — API KEY REQUIRED</b><br>
+                      To fetch a live mandi observation, enter your personal
+                      <b>data.gov.in API key</b> below. The key is used only for this live request
+                      and is not written into the FarmCredit code or Banker View.
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                api_key = st.text_input(
+                    "🔑 data.gov.in API KEY",
+                    type="password",
+                    placeholder="Paste your data.gov.in API key here",
+                    help="Required only if you want FarmCredit to fetch live mandi data.",
+                )
+
+                st.caption(
+                    "Live fetch is optional. FarmCredit stops the request quickly if the government API is slow, "
+                    "so you can always continue with the MSP/manual price."
+                )
+
+                if st.button(
+                    "🌐 FETCH LIVE MANDI PRICE USING API KEY",
+                    use_container_width=True,
+                ):
+                    st.session_state.live_market_result = fetch_live_mandi_price(
+                        api_key=api_key,
+                        state=state_final,
+                        district=district_final,
+                        crop=crop,
+                    )
+
+                    if st.session_state.live_market_result.get("ok"):
+                        latest = st.session_state.live_market_result["latest"]
+                        st.session_state.live_modal_price = float(latest["modal_price"])
+                        st.success(
+                            f'Live mandi data loaded: ₹{indian_number(st.session_state.live_modal_price)}/quintal.'
+                        )
+                    else:
+                        st.warning(st.session_state.live_market_result.get("message", "Live fetch failed."))
+
+                live_result = st.session_state.live_market_result
+                if live_result and live_result.get("ok"):
+                    latest = live_result["latest"]
+                    live_market = str(latest.get("market", "Not provided"))
+                    live_date = str(latest.get("arrival_date", "Not provided"))
+                    live_min = latest.get("min_price")
+                    live_max = latest.get("max_price")
+                    st.markdown(
+                        f"""
+                        <div class="inputhelp">
+                          <b>Latest live observation</b><br>
+                          Modal price: <b>₹{indian_number(latest["modal_price"])}/quintal</b><br>
+                          Market: <b>{html.escape(live_market)}</b><br>
+                          Date: <b>{html.escape(live_date)}</b><br>
+                          Range: <b>₹{indian_number(live_min) if pd.notna(live_min) else "N/A"}
+                          – ₹{indian_number(live_max) if pd.notna(live_max) else "N/A"}</b>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+
+                    if st.button(
+                        "USE LIVE MODAL PRICE IN THIS ASSESSMENT",
+                        use_container_width=True,
+                    ):
+                        st.session_state.price_input = float(latest["modal_price"])
+                        st.success("Live modal price copied into the Selling Price field.")
+                        st.rerun()
 
             expected_price = st.number_input(
                 "Selling price (₹ per quintal)",
@@ -1256,8 +1338,10 @@ with method_tab:
 
     st.markdown("### Market price approach")
     st.write(
-        "The submission build does not use a live mandi API. "
-        "The user can use the official MSP reference or manually enter a recent mandi / expected price."
+        "Live mandi data is optional. "
+        "The user can use the official MSP reference, manually enter a recent mandi / expected price, "
+        "or provide a personal data.gov.in API key to request a live mandi observation. "
+        "If the external API is slow or unavailable, the main accounting workflow still works normally."
     )
 
     st.markdown("### Reference prices")
