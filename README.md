@@ -1,16 +1,24 @@
-# FarmCredit — Step 3 Starter
+# FarmCredit v0.2
 
-This is the first working Streamlit prototype for the Accounting WAI project.
+Step 4 upgrades the prototype from a single paddy case to a multi-crop accounting dashboard.
+
+## What changed
+- Light theme enforced for consistent UI
+- Visible input labels
+- Multi-crop library with official 2026–27 MSP reference values
+- Editable illustrative crop defaults
+- Cleaner farm/finance and cultivation-cost panels
+- Plotly cost donut, break-even chart and stress-test chart
+- Indicative maximum supportable loan calculation
+- Methodology and sources tab
+- Downloadable scenario CSV
+
+## Important
+The MSP prices are official reference benchmarks. Starter cost and yield assumptions are editable illustrative defaults, not official district-level cost estimates.
 
 ## Files
-- `app.py` — the complete first web app
-- `requirements.txt` — Python packages used by Streamlit Community Cloud
-- `data/` — Step 2 reference CSVs
-
-## Deploy
-1. Put these files in a GitHub repository.
-2. Connect that repository to Streamlit Community Cloud.
-3. Choose `app.py` as the entrypoint.
-4. Deploy.
-
-This version intentionally uses editable sample assumptions. The live market-data API is added in a later step.
+- `app.py`
+- `calculations.py`
+- `requirements.txt`
+- `.streamlit/config.toml`
+- `data/crop_benchmarks.csv`
