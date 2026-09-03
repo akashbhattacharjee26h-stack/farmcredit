@@ -9,6 +9,8 @@ import streamlit as st
 from calculations import calculate_case, run_scenarios, resilience_label
 from market_data import fetch_live_mandi_price
 from location_data import load_online_location_master
+from latest_apy_data import get_latest_apy_benchmark
+
 from district_crop_data import (
     OFFICIAL_SOURCE_TITLE,
     OFFICIAL_SOURCE_URL,
@@ -766,7 +768,7 @@ st.markdown(
     """
     <div class="brandbar">
       <div class="brand">🌾 FarmCredit</div>
-      <div class="badge">Submission build · v2.5</div>
+      <div class="badge">Submission build · v2.6</div>
     </div>
     <div class="hero">
       <h1>Farmer profitability & loan viability, in one view.</h1>
@@ -956,6 +958,54 @@ if page == "Farm Assessment":
             elif not crop_profile_result.get("ok"):
                 st.warning(crop_profile_result.get("message"))
 
+            # ---------------------------------------------------------------
+            # NEWEST OFFICIAL APY LAYER
+            # ---------------------------------------------------------------
+            with st.spinner("Checking the newest official DES APY benchmark..."):
+                latest_apy = get_latest_apy_benchmark(
+                    state=state_final,
+                    district=district_final,
+                    crop=crop,
+                )
+
+            if latest_apy.get("ok"):
+                scope_text = {
+                    "district": "DISTRICT-LEVEL",
+                    "state": "STATE-LEVEL FALLBACK",
+                    "all_india": "ALL-INDIA 2024-25 FALLBACK",
+                }.get(latest_apy.get("scope"), "OFFICIAL")
+
+                st.markdown(
+                    f"""
+                    <div class="inputhelp" style="border-left:4px solid #2E6857">
+                      <b>Newest official APY benchmark — {scope_text}</b><br>
+                      Data year: <b>{html.escape(str(latest_apy["year"]))}</b><br>
+                      Official yield: <b>{latest_apy["yield_kg_ha"]:,.0f} kg/hectare</b>
+                      = <b>{latest_apy["yield_kg_acre"]:,.0f} kg/acre</b><br>
+                      Source: <b>{html.escape(latest_apy["source"])}</b><br>
+                      <span style="font-size:.75rem">{html.escape(latest_apy["note"])}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # New official district/state/current benchmark outranks the old
+                # historical CSV benchmark. The value remains editable.
+                latest_context = (
+                    f'{state_final}|{district_final}|{crop}|'
+                    f'{latest_apy.get("scope")}|{latest_apy.get("year")}'
+                )
+                if st.session_state.get("_latest_apy_context") != latest_context:
+                    st.session_state["_latest_apy_context"] = latest_context
+                    st.session_state["yield_input"] = float(
+                        round(latest_apy["yield_kg_acre"], 0)
+                    )
+            else:
+                st.caption(
+                    "The newest DES APY layer could not be read for this selection; "
+                    "FarmCredit will keep the historical district benchmark / generic editable value."
+                )
+
             st.caption(
                 f"Administrative location source: {location_source}. "
                 "LGD remains the formal Government of India geographic reference."
@@ -1119,8 +1169,9 @@ if page == "Farm Assessment":
                 min_value=1.0,
                 step=50.0,
                 key="yield_input",
-                help=("Starter value uses the historical district/state yield benchmark when available; "
-      "otherwise the generic crop benchmark. You should edit it if farmer-specific evidence is available."),
+                help=("Starter value uses the newest official DES APY district/state benchmark when readable, "
+      "then the official 2024-25 All-India fallback, then historical district evidence. "
+      "You should edit it if farmer-specific evidence is available."),
             )
 
             loss_pct = st.number_input(
@@ -1794,6 +1845,18 @@ if page == "Methodology":
         "Break-even price = Accounting cost / Saleable output\n"
         "Harvest coverage = Revenue / (Loan principal + crop-cycle interest)",
         language=None,
+    )
+
+    st.markdown("### Latest APY data hierarchy")
+    st.write(
+        "FarmCredit now checks the current Government of India DES APY reporting system before using the old historical crop-production mirror. "
+        "It dynamically reads the official DES State/Crop identifiers from the current reporting form, asks for the newest available district APY series, "
+        "then falls back to current state APY. If the current portal cannot provide a readable value, the app uses the official 2024-25 All-India yield "
+        "from Agricultural Statistics at a Glance 2024-25. Only after those newer layers does the historical district series remain as contextual evidence."
+    )
+    st.info(
+        "The latest year is not assumed. FarmCredit attempts to detect the newest year exposed by the DES reporting interface. "
+        "Therefore, if DES later publishes newer district APY data, the app can use it without changing the accounting model."
     )
 
     st.markdown("### District crop and yield fallback")
