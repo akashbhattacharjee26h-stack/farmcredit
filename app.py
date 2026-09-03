@@ -8,6 +8,14 @@ import streamlit as st
 
 from calculations import calculate_case, run_scenarios, resilience_label
 from market_data import fetch_live_mandi_price
+from location_data import load_online_location_master
+from district_crop_data import (
+    OFFICIAL_SOURCE_TITLE,
+    OFFICIAL_SOURCE_URL,
+    get_crop_profile,
+    profile_crop_options,
+    crop_benchmark,
+)
 
 
 st.set_page_config(
@@ -168,6 +176,49 @@ st.markdown(
     .stDownloadButton button{
       border-radius:11px!important;font-weight:800!important;min-height:43px!important
     }
+    
+    /* ---------- v2.3 visibility fix ---------- */
+    div[data-testid="stTabs"] button[data-baseweb="tab"]{
+      color:#53675F!important;
+      opacity:1!important;
+    }
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p{
+      color:#53675F!important;
+      opacity:1!important;
+      font-weight:800!important;
+    }
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] p{
+      color:#E25346!important;
+    }
+    div[data-testid="stTabs"] [data-baseweb="tab-highlight"]{
+      background-color:#E25346!important;
+    }
+
+    div[data-testid="stCaptionContainer"],
+    div[data-testid="stCaptionContainer"] p{
+      color:#5C6D66!important;
+      opacity:1!important;
+    }
+
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] li,
+    div[data-testid="stAlert"] span{
+      color:#2B3F37!important;
+      opacity:1!important;
+    }
+
+    div[data-testid="stMarkdownContainer"] p{
+      opacity:1;
+    }
+
+    /* Help icons and secondary widget text should remain visible on cream */
+    [data-testid="stTooltipIcon"] svg,
+    button[data-testid="stBaseButton-headerNoPadding"] svg{
+      color:#62746D!important;
+      fill:#62746D!important;
+    }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -265,6 +316,13 @@ def crop_defaults(crop_name):
 
 def load_selected_crop_defaults():
     values = crop_defaults(st.session_state.crop_input)
+
+    district_yields = st.session_state.get("_district_yield_map", {})
+    historical_yield = district_yields.get(st.session_state.crop_input)
+
+    if historical_yield is not None:
+        values["yield_input"] = float(round(historical_yield, 0))
+
     for key, value in values.items():
         st.session_state[key] = value
 
@@ -415,6 +473,19 @@ if "live_modal_price" not in st.session_state:
     st.session_state.live_modal_price = None
 
 
+
+# -------------------------------------------------------------------
+# LOCATION MASTER
+# -------------------------------------------------------------------
+_online_locations, location_source = load_online_location_master()
+
+if _online_locations:
+    ACTIVE_DISTRICTS = _online_locations
+    ACTIVE_STATES = list(_online_locations.keys()) + ["Other State / UT"]
+else:
+    ACTIVE_DISTRICTS = DISTRICTS
+    ACTIVE_STATES = STATES
+
 # -------------------------------------------------------------------
 # HEADER
 # -------------------------------------------------------------------
@@ -422,7 +493,7 @@ st.markdown(
     """
     <div class="brandbar">
       <div class="brand">🌾 FarmCredit</div>
-      <div class="badge">Submission build · v2.2</div>
+      <div class="badge">Submission build · v2.4</div>
     </div>
     <div class="hero">
       <h1>Farmer profitability & loan viability, in one view.</h1>
@@ -465,8 +536,8 @@ with farm_tab:
 
             state_choice = st.selectbox(
                 "State / UT",
-                STATES,
-                index=STATES.index("Jharkhand"),
+                ACTIVE_STATES,
+                index=ACTIVE_STATES.index("Jharkhand") if "Jharkhand" in ACTIVE_STATES else 0,
                 help="Select the state where the farm is located.",
             )
 
@@ -481,7 +552,7 @@ with farm_tab:
                 ).strip() or "Not specified"
             else:
                 state_final = state_choice
-                dlist = DISTRICTS.get(state_choice, ["Other / Not listed"])
+                dlist = ACTIVE_DISTRICTS.get(state_choice, ["Other / Not listed"])
                 district_choice = st.selectbox(
                     "District",
                     dlist,
@@ -495,18 +566,122 @@ with farm_tab:
                 else:
                     district_final = district_choice
 
+            # Historical district crop evidence is independent of the live mandi-price API.
+            with st.spinner("Checking historical district crop evidence..."):
+                crop_profile_result = get_crop_profile(
+                    state=state_final,
+                    district=district_final,
+                )
+
+            researched_crops = profile_crop_options(crop_profile_result)
+            supported_all = benchmarks.index.tolist()
+
+            # Keep only FarmCredit-supported crops that have historical evidence.
+            researched_crops = [
+                c for c in researched_crops if c in supported_all
+            ]
+
+            show_all_supported = st.checkbox(
+                "Show all FarmCredit-supported crops",
+                value=False,
+                help=(
+                    "By default, the crop list is filtered using historical district/state "
+                    "production evidence. Turn this on if you need a crop that is not present "
+                    "in the historical series."
+                ),
+            )
+
+            if researched_crops and not show_all_supported:
+                crop_options = researched_crops
+            else:
+                crop_options = supported_all
+
+            if st.session_state.get("crop_input") not in crop_options:
+                st.session_state.crop_input = crop_options[0]
+
+            # Store historical district/state yields for the crop-change callback.
+            district_yield_map = {}
+            for crop_name in researched_crops:
+                bench = crop_benchmark(crop_profile_result, crop_name)
+                if bench and bench.get("yield_kg_acre"):
+                    district_yield_map[crop_name] = bench["yield_kg_acre"]
+            st.session_state["_district_yield_map"] = district_yield_map
+
             crop = st.selectbox(
                 "Crop",
-                benchmarks.index.tolist(),
+                crop_options,
                 key="crop_input",
                 on_change=load_selected_crop_defaults,
-                help="Changing the crop reloads the starter yield, MSP and cultivation-cost assumptions.",
+                help=(
+                    "When historical evidence is available, FarmCredit shows district-established "
+                    "crops first and uses the recent historical yield benchmark as the starter yield."
+                ),
             )
+
+            selected_crop_benchmark = crop_benchmark(
+                crop_profile_result,
+                crop,
+            )
+
+            # If location changed but crop stayed the same, update the starter yield once.
+            context_key = f"{state_final}|{district_final}|{crop}"
+            if st.session_state.get("_historical_yield_context") != context_key:
+                st.session_state["_historical_yield_context"] = context_key
+                if (
+                    selected_crop_benchmark
+                    and selected_crop_benchmark.get("yield_kg_acre")
+                ):
+                    st.session_state["yield_input"] = float(
+                        round(selected_crop_benchmark["yield_kg_acre"], 0)
+                    )
 
             row = benchmarks.loc[crop]
             st.caption(
                 f'{row["season"]} crop · Official 2026–27 MSP reference: '
                 f'₹{indian_number(row["msp_2026_27_rs_qtl"])}/quintal'
+            )
+
+            if selected_crop_benchmark and selected_crop_benchmark.get("yield_kg_acre"):
+                scope_label = (
+                    "district-level"
+                    if selected_crop_benchmark["scope"] == "district"
+                    else "state-level fallback"
+                )
+                st.markdown(
+                    f"""
+                    <div class="inputhelp">
+                      <b>Historical crop benchmark ({scope_label})</b><br>
+                      Crop: <b>{html.escape(crop)}</b><br>
+                      Historical yield benchmark: <b>{selected_crop_benchmark["yield_kg_acre"]:,.0f} kg/acre</b><br>
+                      Most recent year in the fallback series: <b>{selected_crop_benchmark["latest_year"]}</b><br>
+                      Recent years used for yield benchmark: <b>{html.escape(selected_crop_benchmark["recent_years_used"])}</b><br>
+                      Recorded season(s): <b>{html.escape(selected_crop_benchmark["season_evidence"])}</b><br>
+                      <span style="font-size:.75rem">
+                        This is a historical production benchmark, not a current-year yield forecast.
+                      </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.warning(
+                    "No usable historical yield benchmark was found for this crop/location. "
+                    "FarmCredit is using the generic editable crop starter value."
+                )
+
+            if crop_profile_result.get("scope") == "state":
+                st.info(crop_profile_result.get("message"))
+            elif not crop_profile_result.get("ok"):
+                st.warning(crop_profile_result.get("message"))
+
+            st.caption(
+                f"Administrative location source: {location_source}. "
+                "LGD remains the formal Government of India geographic reference."
+            )
+            st.caption(
+                "Crop/yield fallback source: Government of India DES district-wise, "
+                "season-wise crop production statistics. FarmCredit uses a static historical "
+                "mirror for speed and keeps the result clearly labelled as historical."
             )
 
     with c2:
@@ -546,20 +721,22 @@ with farm_tab:
                 )
 
                 st.caption(
-                    "Live fetch is optional. FarmCredit stops the request quickly if the government API is slow, "
-                    "so you can always continue with the MSP/manual price."
+                    "Live fetch is optional. Requests are server-filtered, limited to a few records and cached "
+                    "for 10 minutes. If data.gov.in takes more than about 6 seconds, FarmCredit stops waiting "
+                    "so the rest of the dashboard stays responsive."
                 )
 
                 if st.button(
                     "🌐 FETCH LIVE MANDI PRICE USING API KEY",
                     use_container_width=True,
                 ):
-                    st.session_state.live_market_result = fetch_live_mandi_price(
-                        api_key=api_key,
-                        state=state_final,
-                        district=district_final,
-                        crop=crop,
-                    )
+                    with st.spinner("Fetching the latest matching mandi observation..."):
+                        st.session_state.live_market_result = fetch_live_mandi_price(
+                            api_key=api_key,
+                            state=state_final,
+                            district=district_final,
+                            crop=crop,
+                        )
 
                     if st.session_state.live_market_result.get("ok"):
                         latest = st.session_state.live_market_result["latest"]
@@ -656,11 +833,12 @@ with farm_tab:
             )
 
             yield_pa = st.number_input(
-                "Expected yield BEFORE loss (kg per acre)",
+                "Expected yield BEFORE loss (kg per acre) — editable",
                 min_value=1.0,
                 step=50.0,
                 key="yield_input",
-                help="Expected harvested crop from one acre before post-harvest losses.",
+                help=("Starter value uses the historical district/state yield benchmark when available; "
+      "otherwise the generic crop benchmark. You should edit it if farmer-specific evidence is available."),
             )
 
             loss_pct = st.number_input(
@@ -1334,6 +1512,27 @@ with method_tab:
         "Break-even price = Accounting cost / Saleable output\n"
         "Harvest coverage = Revenue / (Loan principal + crop-cycle interest)",
         language=None,
+    )
+
+    st.markdown("### District crop and yield fallback")
+    st.write(
+        "FarmCredit no longer assumes that every supported crop is equally relevant in every district. "
+        "It checks historical Government of India DES district-wise crop-production evidence and, when an exact "
+        "district series is available, filters the crop list to crops historically recorded there. "
+        "For a selected crop it calculates a recent historical yield benchmark from production and area. "
+        "If a newer/reorganised district has no exact historical match, FarmCredit explicitly falls back to state-level evidence."
+    )
+    st.info(
+        "Important: historical crop production tells us what has been recorded and gives a useful yield benchmark; "
+        "it does not prove that the crop is suitable for every farm in that district, and it is not a current-year forecast. "
+        "Farmer-specific yield evidence should override the starter benchmark."
+    )
+
+    st.markdown("### Location data approach")
+    st.write(
+        "FarmCredit loads a broad online State/District master and caches it for 24 hours so the dropdown "
+        "is more complete than a small hardcoded list. The Government of India Local Government Directory (LGD) "
+        "is treated as the formal reference for administrative geography."
     )
 
     st.markdown("### Market price approach")
