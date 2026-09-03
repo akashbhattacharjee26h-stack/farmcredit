@@ -299,6 +299,109 @@ st.markdown(
         opacity: 1 !important;
     }
 
+
+    /* ==========================================================
+       v2.4.2 — GUARANTEED HIGH-CONTRAST NAVIGATION
+       Put the entire tab bar on a dark green background so
+       browser/Streamlit theme cannot wash out inactive tab text.
+       ========================================================== */
+
+    div[data-testid="stTabs"]{
+        margin-top:.55rem!important;
+    }
+
+    div[data-testid="stTabs"] [data-baseweb="tab-list"]{
+        background:#173F35!important;
+        border:1px solid #173F35!important;
+        border-radius:14px!important;
+        padding:.28rem .35rem!important;
+        gap:.25rem!important;
+        box-shadow:0 6px 18px rgba(23,63,53,.10)!important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"]{
+        background:transparent!important;
+        border-radius:10px!important;
+        padding:.58rem .88rem!important;
+        opacity:1!important;
+        color:#FFFFFF!important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] *,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] span,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] div{
+        color:#FFFFFF!important;
+        -webkit-text-fill-color:#FFFFFF!important;
+        opacity:1!important;
+        font-weight:800!important;
+        text-shadow:none!important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover{
+        background:#28594B!important;
+    }
+
+    /* Active tab becomes cream with dark green text */
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"]{
+        background:#FFF9EC!important;
+        box-shadow:0 2px 8px rgba(0,0,0,.08)!important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] *,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] span,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] div{
+        color:#173F35!important;
+        -webkit-text-fill-color:#173F35!important;
+        opacity:1!important;
+        font-weight:900!important;
+    }
+
+    /* Hide Streamlit's thin underline because active state is now a pill */
+    div[data-testid="stTabs"] [data-baseweb="tab-highlight"]{
+        background:transparent!important;
+        height:0!important;
+    }
+
+    /* Improve secondary text and helper captions everywhere */
+    div[data-testid="stCaptionContainer"],
+    div[data-testid="stCaptionContainer"] p,
+    .stCaption,
+    small{
+        color:#4D625A!important;
+        -webkit-text-fill-color:#4D625A!important;
+        opacity:1!important;
+    }
+
+    /* Make section labels and small metadata stronger */
+    .sectionlabel{
+        color:#173F35!important;
+        font-weight:900!important;
+    }
+
+    /* Increase contrast of labels in all widgets */
+    div[data-testid="stWidgetLabel"] p,
+    label[data-testid="stWidgetLabel"] p,
+    .stSelectbox label p,
+    .stNumberInput label p,
+    .stTextInput label p{
+        color:#173F35!important;
+        -webkit-text-fill-color:#173F35!important;
+        opacity:1!important;
+        font-weight:800!important;
+    }
+
+    /* Keep info cards readable */
+    .inputhelp{
+        color:#41564E!important;
+        background:#F2F7F4!important;
+        border-color:#CFE0D7!important;
+    }
+    .inputhelp b{
+        color:#173F35!important;
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -573,7 +676,7 @@ st.markdown(
     """
     <div class="brandbar">
       <div class="brand">🌾 FarmCredit</div>
-      <div class="badge">Submission build · v2.4.1</div>
+      <div class="badge">Submission build · v2.4.2</div>
     </div>
     <div class="hero">
       <h1>Farmer profitability & loan viability, in one view.</h1>
