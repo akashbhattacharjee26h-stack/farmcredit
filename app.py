@@ -402,6 +402,96 @@ st.markdown(
         color:#173F35!important;
     }
 
+
+    /* ==========================================================
+       v2.5 — ROBUST NAVIGATION
+       We no longer use st.tabs because Streamlit/BaseWeb tab colors
+       can be overridden by browser/theme internals. Navigation is now
+       a radio-pill bar that uses stable stRadio markup.
+       ========================================================== */
+
+    .nav-title{
+        margin-top:.7rem;
+        margin-bottom:.25rem;
+        font-size:.68rem;
+        letter-spacing:.12em;
+        font-weight:900;
+        color:#173F35 !important;
+    }
+
+    div[data-testid="stRadio"]{
+        background:#173F35 !important;
+        border:1px solid #173F35 !important;
+        border-radius:14px !important;
+        padding:.36rem .42rem !important;
+        margin-bottom:1rem !important;
+        box-shadow:0 6px 18px rgba(23,63,53,.10) !important;
+    }
+
+    div[data-testid="stRadio"] > div{
+        gap:.35rem !important;
+    }
+
+    div[data-testid="stRadio"] label{
+        background:#173F35 !important;
+        border-radius:10px !important;
+        padding:.48rem .78rem !important;
+        margin:0 !important;
+        opacity:1 !important;
+        cursor:pointer !important;
+    }
+
+    div[data-testid="stRadio"] label p,
+    div[data-testid="stRadio"] label span,
+    div[data-testid="stRadio"] label div{
+        color:#FFFFFF !important;
+        -webkit-text-fill-color:#FFFFFF !important;
+        opacity:1 !important;
+        font-weight:850 !important;
+    }
+
+    /* Hide the circular radio indicator, leaving clean navigation pills */
+    div[data-testid="stRadio"] label > div:first-child{
+        display:none !important;
+    }
+
+    /* Selected navigation item */
+    div[data-testid="stRadio"] label:has(input:checked){
+        background:#FFF9EC !important;
+        box-shadow:0 2px 8px rgba(0,0,0,.10) !important;
+    }
+
+    div[data-testid="stRadio"] label:has(input:checked) p,
+    div[data-testid="stRadio"] label:has(input:checked) span,
+    div[data-testid="stRadio"] label:has(input:checked) div{
+        color:#173F35 !important;
+        -webkit-text-fill-color:#173F35 !important;
+        font-weight:900 !important;
+    }
+
+    div[data-testid="stRadio"] label:hover{
+        background:#2A5A4C !important;
+    }
+
+    div[data-testid="stRadio"] label:has(input:checked):hover{
+        background:#FFF9EC !important;
+    }
+
+    /* Ensure section labels and small helper text always contrast with cream */
+    .sectionlabel{
+        color:#143E35 !important;
+        -webkit-text-fill-color:#143E35 !important;
+        opacity:1 !important;
+        font-weight:900 !important;
+    }
+
+    div[data-testid="stCaptionContainer"],
+    div[data-testid="stCaptionContainer"] p{
+        color:#53655E !important;
+        -webkit-text-fill-color:#53655E !important;
+        opacity:1 !important;
+    }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -676,7 +766,7 @@ st.markdown(
     """
     <div class="brandbar">
       <div class="brand">🌾 FarmCredit</div>
-      <div class="badge">Submission build · v2.4.2</div>
+      <div class="badge">Submission build · v2.5</div>
     </div>
     <div class="hero">
       <h1>Farmer profitability & loan viability, in one view.</h1>
@@ -690,15 +780,24 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-farm_tab, banker_tab, method_tab = st.tabs(
-    ["Farm Assessment", "Banker View", "Methodology"]
+st.markdown(
+    '<div class="nav-title">NAVIGATION</div>',
+    unsafe_allow_html=True,
+)
+
+page = st.radio(
+    "Navigation",
+    ["Farm Assessment", "Banker View", "Methodology"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="main_navigation",
 )
 
 
 # -------------------------------------------------------------------
-# FARM ASSESSMENT TAB
+# FARM ASSESSMENT PAGE
 # -------------------------------------------------------------------
-with farm_tab:
+if page == "Farm Assessment":
 
     st.markdown(
         '<div class="sectionlabel">01 · Farmer identity, location & crop</div>',
@@ -1501,9 +1600,9 @@ with farm_tab:
 
 
 # -------------------------------------------------------------------
-# BANKER VIEW TAB
+# BANKER VIEW PAGE
 # -------------------------------------------------------------------
-with banker_tab:
+if page == "Banker View":
 
     st.markdown(
         '<div class="sectionlabel">Submitted farmer portfolio</div>',
@@ -1663,9 +1762,9 @@ with banker_tab:
 
 
 # -------------------------------------------------------------------
-# METHODOLOGY TAB
+# METHODOLOGY PAGE
 # -------------------------------------------------------------------
-with method_tab:
+if page == "Methodology":
 
     st.markdown("## What each major number means")
 
