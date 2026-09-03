@@ -1,27 +1,26 @@
 from __future__ import annotations
 
-from datetime import datetime
 import re
 from typing import Any
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 MANDI_RESOURCE_ID = "9ef84268-d588-465a-a308-a864a43d0070"
 MANDI_ENDPOINT = f"https://api.data.gov.in/resource/{MANDI_RESOURCE_ID}"
 
-# Public, LGD-derived district index used only to populate dropdowns.
 DISTRICT_INDEX_URL = (
     "https://raw.githubusercontent.com/bilal-webdev/"
     "india-postal-pincode-dataset/main/json/india-district-index.json"
 )
 
-# Fallback allows the app to remain usable if the location-index download fails.
 FALLBACK_DISTRICTS = {
     "Jharkhand": ["Bokaro", "Dhanbad", "East Singhbhum", "Hazaribagh", "Ramgarh", "Ranchi"],
-    "West Bengal": ["Bankura", "Birbhum", "Burdwan", "Hooghly", "Howrah", "Jalpaiguri",
-                    "Kolkata", "Malda", "Murshidabad", "Nadia", "North 24 Parganas",
+    "West Bengal": ["Alipurduar", "Bankura", "Birbhum", "Darjeeling", "Hooghly", "Howrah",
+                    "Jalpaiguri", "Kolkata", "Malda", "Murshidabad", "Nadia", "North 24 Parganas",
                     "Paschim Bardhaman", "Paschim Medinipur", "Purba Bardhaman",
                     "Purba Medinipur", "South 24 Parganas"],
     "Bihar": ["Bhojpur", "Buxar", "Gaya", "Muzaffarpur", "Patna", "Rohtas"],
@@ -73,46 +72,39 @@ STATE_CANONICAL = {
     "WEST BENGAL": "West Bengal",
 }
 
-CROP_ALIASES = {
-    "Paddy (Common)": ["paddy", "dhan"],
-    "Maize": ["maize"],
-    "Tur / Arhar": ["arhar", "tur", "red gram"],
-    "Moong": ["moong", "green gram"],
-    "Urad": ["urad", "urd", "black gram"],
-    "Wheat": ["wheat"],
-    "Gram": ["bengal gram", "gram"],
-    "Lentil (Masur)": ["lentil", "masur"],
-    "Rapeseed & Mustard": ["mustard", "rapeseed"],
+CROP_API_TERMS = {
+    "Paddy (Common)": ["Paddy(Dhan)(Common)", "Paddy(Dhan)", "Paddy", "Dhan"],
+    "Maize": ["Maize"],
+    "Tur / Arhar": ["Arhar (Tur/Red Gram)(Whole)", "Arhar (Tur)", "Tur", "Arhar"],
+    "Moong": ["Green Gram (Moong)(Whole)", "Moong", "Green Gram"],
+    "Urad": ["Black Gram (Urd Beans)(Whole)", "Urad", "Urd", "Black Gram"],
+    "Wheat": ["Wheat"],
+    "Gram": ["Bengal Gram(Gram)(Whole)", "Gram", "Bengal Gram"],
+    "Lentil (Masur)": ["Lentil (Masur)(Whole)", "Lentil", "Masur"],
+    "Rapeseed & Mustard": ["Mustard", "Rapeseed & Mustard", "Rapeseed"],
 }
 
 
 def _pretty_name(s: str) -> str:
-    # Preserve abbreviations reasonably while avoiding all-caps UI.
     return " ".join(w if len(w) <= 3 and "." in w else w.title() for w in s.split())
 
 
 def fetch_state_district_map() -> tuple[dict[str, list[str]], str]:
-    """
-    Returns state -> districts and a source-status string.
-    """
     try:
-        r = requests.get(DISTRICT_INDEX_URL, timeout=10)
+        r = requests.get(DISTRICT_INDEX_URL, timeout=(5, 15))
         r.raise_for_status()
         payload = r.json()
         states_raw = payload.get("states", {})
         out: dict[str, list[str]] = {}
         for raw_state, districts in states_raw.items():
             state = STATE_CANONICAL.get(raw_state.upper(), _pretty_name(raw_state))
-            names = []
-            for raw_district in districts.keys():
-                names.append(_pretty_name(raw_district))
+            names = [_pretty_name(d) for d in districts.keys()]
             out[state] = sorted(set(names))
         if out:
             return dict(sorted(out.items())), "LGD-derived district index"
     except Exception:
         pass
 
-    # Make fallback state list broader even where district coverage is limited.
     all_states = sorted(STATE_CANONICAL.values())
     out = {s: FALLBACK_DISTRICTS.get(s, ["Other / not listed"]) for s in all_states}
     return out, "Fallback location list"
@@ -123,27 +115,40 @@ def _norm(s: Any) -> str:
     return re.sub(r"[^a-z0-9]+", " ", s.lower()).strip()
 
 
-def _matches_crop(commodity: str, crop: str) -> bool:
-    text = _norm(commodity)
-    aliases = CROP_ALIASES.get(crop, [_norm(crop)])
-    return any(_norm(alias) in text for alias in aliases)
+def _local_crop_match(commodity: str, crop: str) -> bool:
+    c = _norm(commodity)
+    terms = [_norm(x) for x in CROP_API_TERMS.get(crop, [crop])]
+    return any(t and (t in c or c in t) for t in terms)
 
 
-def fetch_mandi_records(
-    api_key: str,
-    state: str,
-    district: str,
-    crop: str,
-    limit: int = 1000,
-) -> dict[str, Any]:
-    """
-    Fetch recent AGMARKNET/data.gov.in records for a state + district and
-    filter locally to the selected accounting crop.
-    """
+def _session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=2,
+        connect=2,
+        read=2,
+        backoff_factor=0.7,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["GET"],
+        raise_on_status=False,
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
+    return session
+
+
+def _request_once(session: requests.Session, params: dict[str, Any]) -> dict[str, Any]:
+    resp = session.get(MANDI_ENDPOINT, params=params, timeout=(6, 28))
+    resp.raise_for_status()
+    return resp.json()
+
+
+def fetch_mandi_records(api_key: str, state: str, district: str, crop: str, limit: int = 50) -> dict[str, Any]:
     if not api_key:
-        return {"ok": False, "message": "Add your data.gov.in API key to fetch live market data.", "records": []}
+        return {"ok": False, "kind": "missing_key",
+                "message": "Add your data.gov.in API key to fetch recent mandi data.", "records": []}
 
-    params = {
+    session = _session()
+    base = {
         "api-key": api_key.strip(),
         "format": "json",
         "offset": 0,
@@ -152,31 +157,63 @@ def fetch_mandi_records(
         "filters[district]": district,
     }
 
+    timed_out = False
+    last_error = None
+
+    for term in CROP_API_TERMS.get(crop, [crop]):
+        params = dict(base)
+        params["filters[commodity]"] = term
+        try:
+            payload = _request_once(session, params)
+            raw = payload.get("records", []) or []
+            if raw:
+                return _shape_result(raw, exact_term=term)
+        except requests.exceptions.Timeout:
+            timed_out = True
+        except Exception as e:
+            last_error = type(e).__name__
+
+    fallback_params = dict(base)
+    fallback_params["limit"] = 120
     try:
-        resp = requests.get(MANDI_ENDPOINT, params=params, timeout=18)
-        resp.raise_for_status()
-        payload = resp.json()
+        payload = _request_once(session, fallback_params)
+        raw = payload.get("records", []) or []
+        matches = [r for r in raw if _local_crop_match(r.get("commodity", ""), crop)]
+        if matches:
+            return _shape_result(matches, exact_term=None)
+        if raw:
+            examples = sorted({str(r.get("commodity", "")).strip() for r in raw if r.get("commodity")})[:8]
+            return {
+                "ok": False, "kind": "no_crop_match",
+                "message": (
+                    f"No recent {crop} observation matched for {district}, {state}. "
+                    + (f"Commodities returned for this district include: {', '.join(examples)}." if examples else "")
+                ),
+                "records": [],
+            }
+        return {"ok": False, "kind": "no_records",
+                "message": f"No recent mandi records were returned for {district}, {state}.", "records": []}
+    except requests.exceptions.Timeout:
+        timed_out = True
     except Exception as e:
-        return {
-            "ok": False,
-            "message": f"Market data request failed: {type(e).__name__}.",
-            "records": [],
-        }
+        last_error = type(e).__name__
 
-    raw = payload.get("records", []) or []
-    matches = [r for r in raw if _matches_crop(r.get("commodity", ""), crop)]
-
-    if not matches:
+    if timed_out:
         return {
-            "ok": False,
+            "ok": False, "kind": "timeout",
             "message": (
-                f"No matching {crop} records were returned for {district}, {state}. "
-                "Try another district or keep using MSP / manual expected price."
+                "The government mandi API is responding slowly and timed out after retries. "
+                "Your API key may still be valid. Try again in a minute or choose another district/crop."
             ),
             "records": [],
         }
 
-    df = pd.DataFrame(matches)
+    return {"ok": False, "kind": "request_error",
+            "message": f"Market data request failed ({last_error or 'unknown error'}).", "records": []}
+
+
+def _shape_result(raw: list[dict[str, Any]], exact_term: str | None) -> dict[str, Any]:
+    df = pd.DataFrame(raw)
     for col in ["min_price", "max_price", "modal_price"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
@@ -185,23 +222,25 @@ def fetch_mandi_records(
         df["_date"] = pd.to_datetime(df["arrival_date"], errors="coerce", dayfirst=True)
         df = df.sort_values("_date", ascending=False, na_position="last")
 
-    df = df.dropna(subset=["modal_price"]) if "modal_price" in df.columns else df
+    if "modal_price" not in df.columns:
+        return {"ok": False, "kind": "bad_schema",
+                "message": "Records were returned, but no modal-price field was available.", "records": []}
 
+    df = df.dropna(subset=["modal_price"])
     if df.empty:
-        return {"ok": False, "message": "Records were returned, but no usable modal prices were found.", "records": []}
+        return {"ok": False, "kind": "bad_prices",
+                "message": "Records were returned, but no usable modal prices were found.", "records": []}
 
     latest = df.iloc[0].to_dict()
-
-    # Compact history: recent latest observations, sorted oldest -> newest for charts.
     history = df.head(30).copy()
     if "_date" in history.columns:
         history = history.sort_values("_date")
-    history_records = history.to_dict(orient="records")
 
     return {
-        "ok": True,
+        "ok": True, "kind": "success",
         "message": "Recent mandi observations loaded.",
         "latest": latest,
-        "history": history_records,
+        "history": history.to_dict(orient="records"),
         "record_count": int(len(df)),
+        "query_term": exact_term,
     }
