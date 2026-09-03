@@ -219,7 +219,87 @@ st.markdown(
       fill:#62746D!important;
     }
 
-    </style>
+    
+    /* ==========================================================
+       v2.4.1 — FORCE TAB/NAVIGATION VISIBILITY
+       ========================================================== */
+
+    /* Entire tab row */
+    div[data-testid="stTabs"] [data-baseweb="tab-list"]{
+        gap: 0.25rem !important;
+        border-bottom: 1px solid #D8D2C5 !important;
+    }
+
+    /* Inactive tabs */
+    div[data-testid="stTabs"] button[data-baseweb="tab"]{
+        background: transparent !important;
+        color: #31483F !important;
+        opacity: 1 !important;
+        font-weight: 800 !important;
+    }
+
+    div[data-testid="stTabs"] button[data-baseweb="tab"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] span,
+    div[data-testid="stTabs"] button[data-baseweb="tab"] div{
+        color: #31483F !important;
+        -webkit-text-fill-color: #31483F !important;
+        opacity: 1 !important;
+        font-weight: 800 !important;
+    }
+
+    /* Selected tab */
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"],
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] span,
+    div[data-testid="stTabs"] button[data-baseweb="tab"][aria-selected="true"] div{
+        color: #D94E45 !important;
+        -webkit-text-fill-color: #D94E45 !important;
+        opacity: 1 !important;
+    }
+
+    /* Hover tab */
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover,
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover p,
+    div[data-testid="stTabs"] button[data-baseweb="tab"]:hover span{
+        color: #173F35 !important;
+        -webkit-text-fill-color: #173F35 !important;
+        opacity: 1 !important;
+    }
+
+    /* Red selected underline */
+    div[data-testid="stTabs"] [data-baseweb="tab-highlight"]{
+        background-color: #D94E45 !important;
+        height: 2px !important;
+    }
+
+    /* General secondary text contrast */
+    div[data-testid="stCaptionContainer"],
+    div[data-testid="stCaptionContainer"] p,
+    .stCaption,
+    small{
+        color: #53655E !important;
+        -webkit-text-fill-color: #53655E !important;
+        opacity: 1 !important;
+    }
+
+    /* Ensure checkbox / radio labels stay readable */
+    div[data-testid="stCheckbox"] label,
+    div[data-testid="stCheckbox"] label p,
+    div[data-testid="stRadio"] label,
+    div[data-testid="stRadio"] label p{
+        color: #243A32 !important;
+        -webkit-text-fill-color: #243A32 !important;
+        opacity: 1 !important;
+        font-weight: 700 !important;
+    }
+
+    /* Information / warning / success boxes */
+    div[data-testid="stAlert"] *,
+    div[data-testid="stNotification"] *{
+        opacity: 1 !important;
+    }
+
+</style>
     """,
     unsafe_allow_html=True,
 )
@@ -493,7 +573,7 @@ st.markdown(
     """
     <div class="brandbar">
       <div class="brand">🌾 FarmCredit</div>
-      <div class="badge">Submission build · v2.4</div>
+      <div class="badge">Submission build · v2.4.1</div>
     </div>
     <div class="hero">
       <h1>Farmer profitability & loan viability, in one view.</h1>
