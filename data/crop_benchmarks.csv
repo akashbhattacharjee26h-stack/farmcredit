@@ -1,0 +1,10 @@
+crop,season,msp_2026_27_rs_qtl,default_yield_kg_acre,default_loss_pct,default_cycle_months,seed_rs_acre,fertilizer_rs_acre,pesticides_rs_acre,labour_rs_acre,irrigation_rs_acre,machinery_rs_acre,packaging_rs_acre,transport_rs_acre,other_rs_acre,price_source
+Paddy (Common),Kharif,2441,1200,5,6,1200,3500,1000,5500,1500,3000,600,800,900,PIB KMS 2026-27
+Maize,Kharif,2410,1000,5,5,1800,3200,900,4200,1200,2500,500,700,700,PIB KMS 2026-27
+Tur / Arhar,Kharif,8450,600,4,6,1400,1800,900,4500,900,1800,400,600,700,PIB KMS 2026-27
+Moong,Kharif,8780,500,4,4,1500,1500,700,3500,700,1500,350,500,650,PIB KMS 2026-27
+Urad,Kharif,8200,500,4,4,1500,1600,700,3500,700,1500,350,500,650,PIB KMS 2026-27
+Wheat,Rabi,2585,1400,4,5,1600,3600,900,4800,1700,2600,500,700,700,PIB RMS 2026-27
+Gram,Rabi,5875,700,4,5,1500,2000,700,3900,900,1800,400,600,650,PIB RMS 2026-27
+Lentil (Masur),Rabi,7000,600,4,5,1500,1800,650,3800,800,1700,400,600,650,PIB RMS 2026-27
+Rapeseed & Mustard,Rabi,6200,700,4,5,1700,2200,800,4000,900,1900,400,600,700,PIB RMS 2026-27
