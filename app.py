@@ -237,6 +237,48 @@ div[data-testid="stTabs"] button p{font-weight:800!important;}
 .stButton button, .stDownloadButton button{
   border-radius:12px!important;font-weight:800!important;
 }
+
+/* v0.3.1 — force closed dropdown controls and menus into light mode */
+div[data-testid="stSelectbox"] div[role="combobox"]{
+  background-color:#FFFFFF !important;
+  color:#14211D !important;
+  border:1px solid #D9D2C4 !important;
+  box-shadow:none !important;
+}
+div[data-testid="stSelectbox"] div[role="combobox"] *{
+  color:#14211D !important;
+  fill:#36564B !important;
+}
+div[data-testid="stSelectbox"] div[role="combobox"]:focus-within{
+  border-color:#6F9687 !important;
+  box-shadow:0 0 0 2px rgba(43,101,85,.12) !important;
+}
+div[role="listbox"]{
+  background:#FFFFFF !important;
+  border:1px solid #D9D2C4 !important;
+}
+div[role="option"]{
+  background:#FFFFFF !important;
+  color:#14211D !important;
+}
+div[role="option"]:hover{
+  background:#EEF4F0 !important;
+  color:#14211D !important;
+}
+div[role="option"][aria-selected="true"]{
+  background:#E4EFE9 !important;
+  color:#143E35 !important;
+}
+div[data-testid="stButton"] > button{
+  background:#173F35 !important;
+  color:#FFFFFF !important;
+  border:1px solid #173F35 !important;
+}
+div[data-testid="stButton"] > button:hover{
+  background:#24594A !important;
+  color:#FFFFFF !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -249,7 +291,7 @@ st.markdown("""
       <div class="brand-sub">Agricultural financial intelligence</div>
     </div>
   </div>
-  <div class="version">Accounting WAI · Prototype v0.3</div>
+  <div class="version">Accounting WAI · Prototype v0.3.1</div>
 </div>
 <div class="hero">
   <div class="eyebrow">Market-aware crop-cycle assessment</div>
@@ -358,7 +400,14 @@ with assessment_tab:
                     st.rerun()
 
             elif market_result:
-                st.info(market_result.get("message", "No market data loaded."))
+                kind = market_result.get("kind", "")
+                message = market_result.get("message", "No market data loaded.")
+                if kind == "timeout":
+                    st.warning(message)
+                elif kind in {"no_records", "no_crop_match"}:
+                    st.info(message)
+                else:
+                    st.error(message)
             else:
                 st.markdown(
                     '<div class="note">Until an API key is connected, the financial model uses the editable MSP benchmark as the starting selling-price assumption.</div>',
