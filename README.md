@@ -1,4 +1,4 @@
-# FarmCredit v0.2
+# FarmCredit v2.6.2
 
 Step 4 upgrades the prototype from a single paddy case to a multi-crop accounting dashboard.
 
