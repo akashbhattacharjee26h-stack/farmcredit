@@ -494,6 +494,12 @@ st.markdown(
         opacity:1 !important;
     }
 
+
+    /* v2.6.2 — Plotly / chart text contrast fix */
+    .js-plotly-plot .plotly text { fill: #173F35 !important; }
+    .js-plotly-plot .legend text { fill: #31483F !important; }
+    .js-plotly-plot .xtick text, .js-plotly-plot .ytick text { fill: #53655E !important; }
+
 </style>
     """,
     unsafe_allow_html=True,
@@ -768,7 +774,7 @@ st.markdown(
     """
     <div class="brandbar">
       <div class="brand">🌾 FarmCredit</div>
-      <div class="badge">Submission build · v2.6</div>
+      <div class="badge">Submission build · v2.6.2</div>
     </div>
     <div class="hero">
       <h1>Farmer profitability & loan viability, in one view.</h1>
@@ -1537,12 +1543,18 @@ if page == "Farm Assessment":
                     textinfo="none",
                 )
             )
+            fig_cost.update_traces(
+                marker=dict(line=dict(color="#F7F4EC", width=2)),
+                textfont=dict(color="#173F35"),
+            )
             fig_cost.update_layout(
-                title="Cultivation cost composition (₹/acre)",
-                height=320,
-                margin=dict(l=10, r=10, t=50, b=10),
-                paper_bgcolor="rgba(0,0,0,0)",
-                legend=dict(orientation="h", y=-0.08),
+                title=dict(text="Cultivation cost composition (₹/acre)", x=0.02, xanchor="left", font=dict(color="#173F35", size=18)),
+                height=350,
+                margin=dict(l=10, r=10, t=60, b=68),
+                paper_bgcolor="#F7F4EC",
+                plot_bgcolor="#F7F4EC",
+                font=dict(color="#173F35"),
+                legend=dict(orientation="h", y=-0.14, x=0, font=dict(color="#31483F", size=11), bgcolor="rgba(0,0,0,0)"),
             )
             st.plotly_chart(
                 fig_cost,
@@ -1566,13 +1578,21 @@ if page == "Farm Assessment":
                     textposition="outside",
                 )
             )
+            fig_be.update_traces(
+                marker_color=["#2E6857", "#C49A52"],
+                textfont=dict(color="#173F35", size=12),
+                cliponaxis=False,
+            )
             fig_be.update_layout(
-                title="Selling price vs break-even",
-                height=320,
-                margin=dict(l=10, r=55, t=50, b=30),
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                xaxis_title="₹ per quintal",
+                title=dict(text="Selling price vs break-even", x=0.02, xanchor="left", font=dict(color="#173F35", size=18)),
+                height=350,
+                margin=dict(l=155, r=75, t=60, b=55),
+                paper_bgcolor="#F7F4EC",
+                plot_bgcolor="#F7F4EC",
+                font=dict(color="#173F35"),
+                xaxis=dict(title=dict(text="₹ per quintal", font=dict(color="#31483F")), tickfont=dict(color="#53655E"), gridcolor="#DDD7C9", zeroline=False, linecolor="#AFA89A"),
+                yaxis=dict(tickfont=dict(color="#31483F"), title="", automargin=True),
+                showlegend=False,
             )
             st.plotly_chart(
                 fig_be,
@@ -1595,14 +1615,23 @@ if page == "Farm Assessment":
                 textposition="outside",
             )
         )
-        fig_stress.add_hline(y=0, line_width=1)
+        fig_stress.update_traces(
+            marker_color=["#2E6857" if float(v) >= 0 else "#C85C52" for v in sdf["Accounting profit"]],
+            textfont=dict(color="#173F35", size=11),
+            cliponaxis=False,
+        )
+        fig_stress.add_hline(y=0, line_width=1.5, line_color="#5B625F")
         fig_stress.update_layout(
-            title="Accounting profit under price and yield shocks",
-            height=360,
-            margin=dict(l=10, r=10, t=50, b=20),
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            yaxis_title="Accounting profit (₹)",
+            title=dict(text="Accounting profit under price and yield shocks", x=0.01, xanchor="left", font=dict(color="#173F35", size=18)),
+            height=400,
+            margin=dict(l=75, r=20, t=60, b=85),
+            paper_bgcolor="#F7F4EC",
+            plot_bgcolor="#F7F4EC",
+            font=dict(color="#173F35"),
+            xaxis=dict(tickfont=dict(color="#31483F", size=11), title="", linecolor="#AFA89A", automargin=True),
+            yaxis=dict(title=dict(text="Accounting profit (₹)", font=dict(color="#31483F")), tickfont=dict(color="#53655E"), gridcolor="#D8D2C5", zeroline=False, linecolor="#AFA89A"),
+            bargap=0.24,
+            showlegend=False,
         )
         st.plotly_chart(
             fig_stress,
